@@ -16,11 +16,12 @@ import { getFontStyle } from '../../utils/fonts';
 import { useUser } from '../../contexts/UserContext';
 
 export default function LoginScreen({ navigation }) {
-  const { signIn } = useUser();
+  const { signIn, signInWithGoogle } = useUser();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
 
   const handleLogin = async () => {
     if (!email || !password) {
@@ -30,10 +31,7 @@ export default function LoginScreen({ navigation }) {
 
     setLoading(true);
     try {
-      // Use Firebase authentication
       await signIn(email, password);
-      
-      // Navigation will be handled automatically by RootNavigator through context
     } catch (error) {
       Alert.alert('Error', error.message || 'Login failed. Please try again.');
     } finally {
@@ -47,6 +45,17 @@ export default function LoginScreen({ navigation }) {
 
   const handleForgotPassword = () => {
     navigation.navigate('ForgotPassword');
+  };
+
+  const handleGoogleSignIn = async () => {
+    setGoogleLoading(true);
+    try {
+      await signInWithGoogle();
+    } catch (error) {
+      Alert.alert('Error', error.message || 'Google sign-in failed. Please try again.');
+    } finally {
+      setGoogleLoading(false);
+    }
   };
 
   return (
@@ -111,6 +120,24 @@ export default function LoginScreen({ navigation }) {
             loading={loading}
             style={styles.loginButton}
           />
+
+          <View style={styles.divider}>
+            <View style={styles.dividerLine} />
+            <Text style={styles.dividerText}>OR</Text>
+            <View style={styles.dividerLine} />
+          </View>
+
+          <TouchableOpacity
+            style={styles.googleButton}
+            onPress={handleGoogleSignIn}
+            disabled={googleLoading || loading}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="logo-google" size={20} color="#4285F4" />
+            <Text style={styles.googleButtonText}>
+              {googleLoading ? 'Signing in...' : 'Continue with Google'}
+            </Text>
+          </TouchableOpacity>
         </View>
 
         <View style={styles.footer}>
@@ -202,6 +229,39 @@ const styles = StyleSheet.create({
   },
   loginButton: {
     marginTop: 8,
+  },
+  divider: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 24,
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: '#e2e8f0',
+  },
+  dividerText: {
+    marginHorizontal: 16,
+    fontSize: 14,
+    color: '#64748b',
+    ...getFontStyle('medium'),
+  },
+  googleButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: '#d1d5db',
+    borderRadius: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    gap: 12,
+  },
+  googleButtonText: {
+    fontSize: 16,
+    color: '#1e293b',
+    ...getFontStyle('semiBold'),
   },
   footer: {
     flexDirection: 'row',

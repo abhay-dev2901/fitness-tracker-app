@@ -52,7 +52,6 @@ export function UserProvider({ children }) {
             await FirestoreService.initializeTodaysFitnessData(firebaseUser.uid);
           }
         } catch (error) {
-          console.error('Error loading user profile:', error);
           setUser({
             uid: firebaseUser.uid,
             name: firebaseUser.displayName || 'User',
@@ -99,6 +98,31 @@ export function UserProvider({ children }) {
     }
   };
 
+  const signInWithGoogle = async () => {
+    try {
+      setIsLoading(true);
+      const googleUser = await AuthService.signInWithGoogle();
+      
+      try {
+        const userProfile = await FirestoreService.getUserProfile(googleUser.uid);
+        
+        if (!userProfile) {
+          await FirestoreService.createUserProfile(googleUser.uid, {
+            name: googleUser.displayName || 'User',
+            email: googleUser.email || '',
+            profilePicture: googleUser.photoURL || null,
+          });
+          
+          await FirestoreService.initializeTodaysFitnessData(googleUser.uid);
+        }
+      } catch (error) {
+      }
+    } catch (error) {
+      setIsLoading(false);
+      throw error;
+    }
+  };
+
   const signOut = async () => {
     try {
       await AuthService.signOut();
@@ -124,6 +148,7 @@ export function UserProvider({ children }) {
     isLoading,
     signUp,
     signIn,
+    signInWithGoogle,
     signOut,
     updateUserProfile,
     isLoggedIn: !!authUser,

@@ -10,7 +10,6 @@ export const getFontFamily = (weight = 'regular') => {
   return fonts[weight];
 };
 
-// Helper function to get font style object
 export const getFontStyle = (weight = 'regular') => {
   return {
     fontFamily: fonts[weight],

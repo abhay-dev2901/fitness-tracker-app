@@ -17,7 +17,7 @@ import { getFontStyle } from '../../utils/fonts';
 import { useUser } from '../../contexts/UserContext';
 
 export default function SignupScreen({ navigation }) {
-  const { signUp } = useUser();
+  const { signUp, signInWithGoogle } = useUser();
   const [formData, setFormData] = useState({
     name: '',
     email: '',
@@ -27,6 +27,7 @@ export default function SignupScreen({ navigation }) {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
 
   const handleInputChange = (field, value) => {
     setFormData(prev => ({ ...prev, [field]: value }));
@@ -64,7 +65,6 @@ export default function SignupScreen({ navigation }) {
 
     setLoading(true);
     try {
-      // Use Firebase authentication
       await signUp(formData.email, formData.password, formData.name);
 
       Alert.alert(
@@ -73,7 +73,6 @@ export default function SignupScreen({ navigation }) {
         [{ 
           text: 'OK', 
           onPress: () => {
-            // Navigation will be handled automatically by RootNavigator through context
           }
         }]
       );
@@ -86,6 +85,17 @@ export default function SignupScreen({ navigation }) {
 
   const handleSignIn = () => {
     navigation.navigate('Login');
+  };
+
+  const handleGoogleSignIn = async () => {
+    setGoogleLoading(true);
+    try {
+      await signInWithGoogle();
+    } catch (error) {
+      Alert.alert('Error', error.message || 'Google sign-in failed. Please try again.');
+    } finally {
+      setGoogleLoading(false);
+    }
   };
 
   return (
@@ -191,6 +201,24 @@ export default function SignupScreen({ navigation }) {
               loading={loading}
               style={styles.signupButton}
             />
+
+            <View style={styles.divider}>
+              <View style={styles.dividerLine} />
+              <Text style={styles.dividerText}>OR</Text>
+              <View style={styles.dividerLine} />
+            </View>
+
+            <TouchableOpacity
+              style={styles.googleButton}
+              onPress={handleGoogleSignIn}
+              disabled={googleLoading || loading}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="logo-google" size={20} color="#4285F4" />
+              <Text style={styles.googleButtonText}>
+                {googleLoading ? 'Signing in...' : 'Continue with Google'}
+              </Text>
+            </TouchableOpacity>
           </View>
 
           <View style={styles.footer}>
@@ -288,6 +316,39 @@ const styles = StyleSheet.create({
   },
   signupButton: {
     marginTop: 16,
+  },
+  divider: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 24,
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: '#e2e8f0',
+  },
+  dividerText: {
+    marginHorizontal: 16,
+    fontSize: 14,
+    color: '#64748b',
+    ...getFontStyle('medium'),
+  },
+  googleButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: '#d1d5db',
+    borderRadius: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    gap: 12,
+  },
+  googleButtonText: {
+    fontSize: 16,
+    color: '#1e293b',
+    ...getFontStyle('semiBold'),
   },
   footer: {
     flexDirection: 'row',

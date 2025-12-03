@@ -32,7 +32,6 @@ export default function ForgotPasswordScreen({ navigation }) {
     }
 
     setLoading(true);
-    // Simulate password reset process
     setTimeout(() => {
       setLoading(false);
       setEmailSent(true);

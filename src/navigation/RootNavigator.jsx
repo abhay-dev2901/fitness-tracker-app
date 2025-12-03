@@ -1,7 +1,7 @@
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { useUser } from '../contexts/UserContext';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import WelcomeScreen from '../screens/WelcomeScreen';
 import OnboardingScreen from '../screens/OnboardingScreen';
@@ -15,10 +15,36 @@ const HAS_SEEN_ONBOARDING_KEY = '@fitness_tracker_has_seen_onboarding';
 export default function RootNavigator() {
   const { isLoggedIn, isLoading } = useUser();
   const [hasSeenOnboarding, setHasSeenOnboarding] = useState(null);
+  const navigationRef = useRef(null);
+  const isInitialMount = useRef(true);
 
   useEffect(() => {
     checkOnboardingStatus();
   }, []);
+
+  useEffect(() => {
+    if (isInitialMount.current) {
+      if (!isLoading && hasSeenOnboarding !== null) {
+        isInitialMount.current = false;
+      }
+      return;
+    }
+
+    if (!isLoading && hasSeenOnboarding !== null && navigationRef.current) {
+      if (isLoggedIn) {
+        navigationRef.current.reset({
+          index: 0,
+          routes: [{ name: 'Main' }],
+        });
+      } else {
+        const route = hasSeenOnboarding ? 'Auth' : 'Welcome';
+        navigationRef.current.reset({
+          index: 0,
+          routes: [{ name: route }],
+        });
+      }
+    }
+  }, [isLoggedIn, isLoading, hasSeenOnboarding]);
 
   const checkOnboardingStatus = async () => {
     try {
@@ -34,7 +60,6 @@ export default function RootNavigator() {
       await AsyncStorage.setItem(HAS_SEEN_ONBOARDING_KEY, 'true');
       setHasSeenOnboarding(true);
     } catch (error) {
-      console.error('Error saving onboarding status:', error);
     }
   };
 
@@ -45,7 +70,7 @@ export default function RootNavigator() {
   const initialRoute = isLoggedIn ? "Main" : hasSeenOnboarding ? "Auth" : "Welcome";
 
   return (
-    <NavigationContainer>
+    <NavigationContainer ref={navigationRef}>
       <Stack.Navigator 
         initialRouteName={initialRoute}
         screenOptions={{
@@ -54,16 +79,10 @@ export default function RootNavigator() {
           animation: 'slide_from_right',
         }}
       >
-        {isLoggedIn ? (
-          <Stack.Screen name="Main" component={MainNavigator} />
-        ) : (
-          <>
-            <Stack.Screen name="Welcome" component={WelcomeScreen} />
-            <Stack.Screen name="Onboarding" component={OnboardingScreen} />
-            <Stack.Screen name="Auth" component={AuthNavigator} />
-            <Stack.Screen name="Main" component={MainNavigator} />
-          </>
-        )}
+        <Stack.Screen name="Welcome" component={WelcomeScreen} />
+        <Stack.Screen name="Onboarding" component={OnboardingScreen} />
+        <Stack.Screen name="Auth" component={AuthNavigator} />
+        <Stack.Screen name="Main" component={MainNavigator} />
       </Stack.Navigator>
     </NavigationContainer>
   );

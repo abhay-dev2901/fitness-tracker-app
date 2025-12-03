@@ -21,7 +21,7 @@ function ActivityNavigator() {
   return (
     <ActivityStack.Navigator 
       screenOptions={{
-        headerShown: false,
+        headerShown: true,
         gestureEnabled: true,
         animation: 'slide_from_right',
       }}
