@@ -5,6 +5,11 @@ import {
   updateDoc, 
   deleteDoc,
   collection,
+  query,
+  where,
+  orderBy,
+  limit,
+  getDocs,
   serverTimestamp,
 } from 'firebase/firestore';
 import { db } from '../config/firebase';
@@ -148,6 +153,97 @@ export class FirestoreService {
         water: 0,
         workouts: 0,
       });
+    }
+  }
+
+  static async saveWorkout(uid, workoutData) {
+    try {
+      const workoutRef = doc(collection(db, 'workouts'));
+      const workout = {
+        uid,
+        name: workoutData.name,
+        type: workoutData.type,
+        duration: parseInt(workoutData.duration) || 0,
+        calories: parseInt(workoutData.calories) || 0,
+        date: this.getTodayDateString(),
+        createdAt: serverTimestamp(),
+      };
+      
+      await setDoc(workoutRef, workout);
+      return workoutRef.id;
+    } catch (error) {
+      throw new Error(`Failed to save workout: ${error.message}`);
+    }
+  }
+
+  static async getWorkouts(uid, limitCount = 20) {
+    try {
+      const workoutsRef = collection(db, 'workouts');
+      const q = query(
+        workoutsRef,
+        where('uid', '==', uid),
+        orderBy('createdAt', 'desc'),
+        limit(limitCount)
+      );
+      
+      const querySnapshot = await getDocs(q);
+      const workouts = [];
+      
+      querySnapshot.forEach((doc) => {
+        const data = doc.data();
+        workouts.push({
+          id: doc.id,
+          name: data.name,
+          type: data.type,
+          duration: data.duration,
+          calories: data.calories,
+          date: data.date,
+          createdAt: data.createdAt?.toDate() || new Date(),
+        });
+      });
+      
+      return workouts;
+    } catch (error) {
+      if (error.code === 'failed-precondition') {
+        try {
+          const workoutsRef = collection(db, 'workouts');
+          const q = query(
+            workoutsRef,
+            where('uid', '==', uid),
+            limit(limitCount)
+          );
+          
+          const querySnapshot = await getDocs(q);
+          const workouts = [];
+          
+          querySnapshot.forEach((doc) => {
+            const data = doc.data();
+            workouts.push({
+              id: doc.id,
+              name: data.name,
+              type: data.type,
+              duration: data.duration,
+              calories: data.calories,
+              date: data.date,
+              createdAt: data.createdAt?.toDate() || new Date(),
+            });
+          });
+          
+          return workouts.sort((a, b) => b.createdAt - a.createdAt);
+        } catch (fallbackError) {
+          throw new Error(`Failed to get workouts: ${fallbackError.message}`);
+        }
+      }
+      throw new Error(`Failed to get workouts: ${error.message}`);
+    }
+  }
+
+  static async deleteWorkout(workoutId) {
+    try {
+      const workoutRef = doc(db, 'workouts', workoutId);
+      await deleteDoc(workoutRef);
+    } catch (error) {
+      throw new Error(`Failed to delete workout: ${error.message}`);
     }
   }
 }
