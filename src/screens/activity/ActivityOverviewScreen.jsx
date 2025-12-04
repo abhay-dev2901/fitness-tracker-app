@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   View, 
   Text, 
@@ -8,11 +8,113 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
+import { useUser } from '../../contexts/UserContext';
+import { FirestoreService } from '../../services/firestoreService';
 import { getFontStyle } from '../../utils/fonts';
 
 export default function ActivityOverviewScreen() {
   const navigation = useNavigation();
+  const { user } = useUser();
+  const [todayData, setTodayData] = useState({
+    steps: 0,
+    workouts: 0,
+    calories: 0,
+    water: 0,
+  });
+  const [recentWorkouts, setRecentWorkouts] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  const workoutTypeIcons = {
+    cardio: 'bicycle',
+    strength: 'barbell',
+    flexibility: 'body',
+    sports: 'football',
+    other: 'fitness',
+  };
+
+  const workoutTypeColors = {
+    cardio: '#ef4444',
+    strength: '#8b5cf6',
+    flexibility: '#06b6d4',
+    sports: '#22c55e',
+    other: '#64748b',
+  };
+
+  useFocusEffect(
+    React.useCallback(() => {
+      loadData();
+    }, [user?.uid])
+  );
+
+  const loadData = async () => {
+    if (!user?.uid) {
+      setLoading(false);
+      return;
+    }
+
+    try {
+      const today = FirestoreService.getTodayDateString();
+      const fitnessData = await FirestoreService.getFitnessData(user.uid, today);
+      const workouts = await FirestoreService.getWorkouts(user.uid, 5);
+
+      if (fitnessData) {
+        setTodayData({
+          steps: fitnessData.steps || 0,
+          workouts: fitnessData.workouts || 0,
+          calories: fitnessData.calories || 0,
+          water: fitnessData.water || 0,
+        });
+      }
+
+      setRecentWorkouts(workouts || []);
+    } catch (error) {
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const formatSteps = (steps) => {
+    return steps.toLocaleString();
+  };
+
+  const formatDistance = (steps) => {
+    const avgStepLength = 0.762;
+    const distance = (steps * avgStepLength) / 1000;
+    return distance.toFixed(1);
+  };
+
+  const formatWater = (water) => {
+    return (water / 1000).toFixed(1);
+  };
+
+  const calculateActiveTime = () => {
+    const totalMinutes = recentWorkouts
+      .filter(w => w.date === FirestoreService.getTodayDateString())
+      .reduce((sum, w) => sum + (parseInt(w.duration) || 0), 0);
+    return totalMinutes;
+  };
+
+  const formatTimeAgo = (date) => {
+    const now = new Date();
+    const workoutDate = date instanceof Date ? date : new Date(date);
+    const diffMs = now - workoutDate;
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+
+    if (diffMins < 60) {
+      return `${diffMins} min ago`;
+    } else if (diffHours < 24) {
+      return `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`;
+    } else if (diffDays === 1) {
+      return 'Yesterday';
+    } else if (diffDays < 7) {
+      return `${diffDays} days ago`;
+    } else {
+      return workoutDate.toLocaleDateString();
+    }
+  };
 
   const activities = [
     {
@@ -22,7 +124,7 @@ export default function ActivityOverviewScreen() {
       icon: 'footsteps',
       color: '#22c55e',
       screen: 'StepCounter',
-      value: '8,547 steps',
+      value: loading ? 'Loading...' : `${formatSteps(todayData.steps)} steps`,
     },
     {
       id: '2',
@@ -31,7 +133,7 @@ export default function ActivityOverviewScreen() {
       icon: 'fitness',
       color: '#8b5cf6',
       screen: 'WorkoutLog',
-      value: '1 workout today',
+      value: loading ? 'Loading...' : `${todayData.workouts} workout${todayData.workouts !== 1 ? 's' : ''} today`,
     },
     {
       id: '3',
@@ -40,7 +142,7 @@ export default function ActivityOverviewScreen() {
       icon: 'flame',
       color: '#ef4444',
       screen: 'CalorieTracker',
-      value: '342 / 500 kcal',
+      value: loading ? 'Loading...' : `${todayData.calories} / 500 kcal`,
     },
     {
       id: '4',
@@ -49,13 +151,16 @@ export default function ActivityOverviewScreen() {
       icon: 'water',
       color: '#06b6d4',
       screen: 'WaterTracker',
-      value: '1.2 / 2.0 L',
+      value: loading ? 'Loading...' : `${formatWater(todayData.water)} / 2.0 L`,
     },
   ];
 
   const handleActivityPress = (screen) => {
     navigation.navigate(screen);
   };
+
+  const activeTime = calculateActiveTime();
+  const distance = formatDistance(todayData.steps);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -100,44 +205,58 @@ export default function ActivityOverviewScreen() {
           <Text style={styles.sectionTitle}>Today's Summary</Text>
           <View style={styles.statsRow}>
             <View style={styles.statItem}>
-              <Text style={styles.statValue}>45 min</Text>
+              <Text style={styles.statValue}>
+                {loading ? '...' : `${activeTime} min`}
+              </Text>
               <Text style={styles.statLabel}>Active Time</Text>
             </View>
             <View style={styles.statItem}>
-              <Text style={styles.statValue}>2.3 km</Text>
+              <Text style={styles.statValue}>
+                {loading ? '...' : `${distance} km`}
+              </Text>
               <Text style={styles.statLabel}>Distance</Text>
             </View>
             <View style={styles.statItem}>
-              <Text style={styles.statValue}>5 days</Text>
-              <Text style={styles.statLabel}>Streak</Text>
+              <Text style={styles.statValue}>
+                {loading ? '...' : `${todayData.workouts}`}
+              </Text>
+              <Text style={styles.statLabel}>Workouts</Text>
             </View>
           </View>
         </View>
 
         <View style={styles.recentActivities}>
           <Text style={styles.sectionTitle}>Recent Activities</Text>
-          <View style={styles.activityList}>
-            <View style={styles.recentActivityItem}>
-              <View style={styles.recentActivityIcon}>
-                <Ionicons name="bicycle" size={20} color="#8b5cf6" />
-              </View>
-              <View style={styles.recentActivityContent}>
-                <Text style={styles.recentActivityTitle}>Morning Cycling</Text>
-                <Text style={styles.recentActivityTime}>30 min • 2 hours ago</Text>
-              </View>
-              <Text style={styles.recentActivityCalories}>185 kcal</Text>
+          {loading ? (
+            <Text style={styles.emptyText}>Loading...</Text>
+          ) : recentWorkouts.length === 0 ? (
+            <Text style={styles.emptyText}>No recent activities</Text>
+          ) : (
+            <View style={styles.activityList}>
+              {recentWorkouts.map((workout) => {
+                const icon = workoutTypeIcons[workout.type] || 'fitness';
+                const color = workoutTypeColors[workout.type] || '#64748b';
+                return (
+                  <View key={workout.id} style={styles.recentActivityItem}>
+                    <View style={[styles.recentActivityIcon, { backgroundColor: `${color}20` }]}>
+                      <Ionicons name={icon} size={20} color={color} />
+                    </View>
+                    <View style={styles.recentActivityContent}>
+                      <Text style={styles.recentActivityTitle}>{workout.name}</Text>
+                      <Text style={styles.recentActivityTime}>
+                        {workout.duration} min • {formatTimeAgo(workout.createdAt)}
+                      </Text>
+                    </View>
+                    {workout.calories > 0 && (
+                      <Text style={styles.recentActivityCalories}>
+                        {workout.calories} kcal
+                      </Text>
+                    )}
+                  </View>
+                );
+              })}
             </View>
-            <View style={styles.recentActivityItem}>
-              <View style={styles.recentActivityIcon}>
-                <Ionicons name="walk" size={20} color="#22c55e" />
-              </View>
-              <View style={styles.recentActivityContent}>
-                <Text style={styles.recentActivityTitle}>Evening Walk</Text>
-                <Text style={styles.recentActivityTime}>15 min • Yesterday</Text>
-              </View>
-              <Text style={styles.recentActivityCalories}>89 kcal</Text>
-            </View>
-          </View>
+          )}
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -299,6 +418,13 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#ef4444',
     ...getFontStyle('semiBold'),
+  },
+  emptyText: {
+    fontSize: 14,
+    color: '#94a3b8',
+    textAlign: 'center',
+    paddingVertical: 20,
+    ...getFontStyle('regular'),
   },
 });
 

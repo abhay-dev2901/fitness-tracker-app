@@ -22,11 +22,24 @@ function ActivityNavigator() {
     <ActivityStack.Navigator 
       screenOptions={{
         headerShown: true,
+        headerBackVisible: true,
+        headerBackTitleVisible: false,
+        headerStyle: {
+          backgroundColor: '#ffffff',
+        },
+        headerTintColor: '#1e293b',
+        headerTitleStyle: {
+          fontWeight: '600',
+        },
         gestureEnabled: true,
         animation: 'slide_from_right',
       }}
     >
-      <ActivityStack.Screen name="ActivityOverview" component={ActivityOverviewScreen} />
+      <ActivityStack.Screen 
+        name="ActivityOverview" 
+        component={ActivityOverviewScreen}
+        options={{ headerShown: false }}
+      />
       <ActivityStack.Screen name="StepCounter" component={StepCounterScreen} />
       <ActivityStack.Screen name="WorkoutLog" component={WorkoutLogScreen} />
       <ActivityStack.Screen name="CalorieTracker" component={CalorieTrackerScreen} />
