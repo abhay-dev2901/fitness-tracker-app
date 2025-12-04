@@ -1,62 +1,256 @@
-import React from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   View, 
   Text, 
   StyleSheet, 
   ScrollView,
   TouchableOpacity,
-  Dimensions
+  Dimensions,
+  RefreshControl
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { LineChart } from 'react-native-chart-kit';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { getFontStyle } from '../../utils/fonts';
 import { useUser } from '../../contexts/UserContext';
+import { FirestoreService } from '../../services/firestoreService';
 
 const screenWidth = Dimensions.get('window').width;
 
 export default function HomeScreen() {
+  const navigation = useNavigation();
   const { user } = useUser();
-  const todayStats = {
-    steps: 8547,
-    calories: 342,
-    water: 1200,
-    workouts: 1,
-  };
-
-  const goals = {
+  const [todayStats, setTodayStats] = useState({
+    steps: 0,
+    calories: 0,
+    water: 0,
+    workouts: 0,
+  });
+  const [goals] = useState({
     steps: 10000,
     calories: 500,
     water: 2000,
     workouts: 1,
-  };
-
-  const weeklySteps = {
+  });
+  const [weeklySteps, setWeeklySteps] = useState({
     labels: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
     datasets: [
       {
-        data: [7200, 8500, 6800, 9200, 8547, 0, 0],
+        data: [0, 0, 0, 0, 0, 0, 0],
         color: (opacity = 1) => `rgba(14, 165, 233, ${opacity})`,
         strokeWidth: 3,
       },
     ],
+  });
+  const [achievements, setAchievements] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const unsubscribeRef = useRef(null);
+  const refreshIntervalRef = useRef(null);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      setupRealTimeUpdates();
+      return () => {
+        cleanup();
+      };
+    }, [user?.uid])
+  );
+
+  const setupRealTimeUpdates = () => {
+    cleanup();
+    loadData();
+    
+    refreshIntervalRef.current = setInterval(() => {
+      loadData();
+    }, 30000);
   };
 
-  const chartConfig = {
-    backgroundColor: '#ffffff',
-    backgroundGradientFrom: '#ffffff',
-    backgroundGradientTo: '#ffffff',
-    decimalPlaces: 0,
-    color: (opacity = 1) => `rgba(14, 165, 233, ${opacity})`,
-    labelColor: (opacity = 1) => `rgba(100, 116, 139, ${opacity})`,
-    style: {
-      borderRadius: 16,
-    },
-    propsForDots: {
-      r: '6',
-      strokeWidth: '2',
-      stroke: '#0ea5e9',
-    },
+  const cleanup = () => {
+    if (unsubscribeRef.current) {
+      unsubscribeRef.current();
+      unsubscribeRef.current = null;
+    }
+    if (refreshIntervalRef.current) {
+      clearInterval(refreshIntervalRef.current);
+      refreshIntervalRef.current = null;
+    }
+  };
+
+  const loadData = async () => {
+    if (!user?.uid) {
+      setLoading(false);
+      return;
+    }
+
+    try {
+      const today = FirestoreService.getTodayDateString();
+      
+      if (unsubscribeRef.current) {
+        unsubscribeRef.current();
+      }
+
+      unsubscribeRef.current = FirestoreService.subscribeToFitnessData(
+        user.uid,
+        today,
+        (data) => {
+          if (data) {
+            setTodayStats({
+              steps: data.steps || 0,
+              calories: data.calories || 0,
+              water: data.water || 0,
+              workouts: data.workouts || 0,
+            });
+          } else {
+            setTodayStats({
+              steps: 0,
+              calories: 0,
+              water: 0,
+              workouts: 0,
+            });
+          }
+          setLoading(false);
+          setRefreshing(false);
+        }
+      );
+
+      await loadWeeklyData();
+      await loadAchievements();
+    } catch (error) {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
+
+  const loadWeeklyData = async () => {
+    if (!user?.uid) return;
+
+    try {
+      const today = new Date();
+      const startDate = new Date();
+      startDate.setDate(today.getDate() - 6);
+
+      const startDateString = startDate.toISOString().split('T')[0];
+      const endDateString = today.toISOString().split('T')[0];
+
+      const weeklyData = await FirestoreService.getFitnessDataRange(
+        user.uid,
+        startDateString,
+        endDateString
+      );
+
+      const stepsData = weeklyData.map(day => day.data.steps || 0);
+      
+      const dayLabels = weeklyData.map(day => {
+        const date = new Date(day.date);
+        const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+        return dayNames[date.getDay()];
+      });
+
+      setWeeklySteps({
+        labels: dayLabels,
+        datasets: [
+          {
+            data: stepsData,
+            color: (opacity = 1) => `rgba(14, 165, 233, ${opacity})`,
+            strokeWidth: 3,
+          },
+        ],
+      });
+    } catch (error) {
+    }
+  };
+
+  const loadAchievements = async () => {
+    if (!user?.uid) return;
+
+    try {
+      const today = new Date();
+      const yesterday = new Date(today);
+      yesterday.setDate(yesterday.getDate() - 1);
+      const yesterdayString = yesterday.toISOString().split('T')[0];
+
+      const yesterdayData = await FirestoreService.getFitnessData(user.uid, yesterdayString);
+      const todayData = await FirestoreService.getFitnessData(user.uid, FirestoreService.getTodayDateString());
+
+      const newAchievements = [];
+
+      if (yesterdayData && yesterdayData.steps >= 10000) {
+        newAchievements.push({
+          icon: 'trophy',
+          color: '#f59e0b',
+          title: 'Step Goal Achieved!',
+          description: `You reached ${yesterdayData.steps.toLocaleString()} steps yesterday`,
+        });
+      }
+
+      if (todayData && todayData.workouts >= 3) {
+        newAchievements.push({
+          icon: 'flame',
+          color: '#ef4444',
+          title: 'Workout Champion',
+          description: `You completed ${todayData.workouts} workouts today!`,
+        });
+      }
+
+      if (todayData && todayData.calories >= 500) {
+        newAchievements.push({
+          icon: 'flame',
+          color: '#ef4444',
+          title: 'Calorie Goal Reached!',
+          description: `You burned ${todayData.calories} calories today`,
+        });
+      }
+
+      if (todayData && todayData.water >= 2000) {
+        newAchievements.push({
+          icon: 'water',
+          color: '#06b6d4',
+          title: 'Hydration Master',
+          description: `You drank ${(todayData.water / 1000).toFixed(1)}L of water today`,
+        });
+      }
+
+      if (newAchievements.length === 0) {
+        newAchievements.push({
+          icon: 'star',
+          color: '#8b5cf6',
+          title: 'Keep Going!',
+          description: 'You\'re doing great! Keep tracking your progress.',
+        });
+      }
+
+      setAchievements(newAchievements);
+    } catch (error) {
+      setAchievements([{
+        icon: 'star',
+        color: '#8b5cf6',
+        title: 'Keep Going!',
+        description: 'You\'re doing great! Keep tracking your progress.',
+      }]);
+    }
+  };
+
+  const onRefresh = () => {
+    setRefreshing(true);
+    loadData();
+  };
+
+  const handleQuickAction = (action) => {
+    switch (action) {
+      case 'workout':
+        navigation.navigate('Activity', { screen: 'AddWorkout' });
+        break;
+      case 'water':
+        navigation.navigate('Activity', { screen: 'WaterTracker' });
+        break;
+      case 'steps':
+        navigation.navigate('Activity', { screen: 'StepCounter' });
+        break;
+      default:
+        break;
+    }
   };
 
   const getProgressPercentage = (current, goal) => {
@@ -100,9 +294,32 @@ export default function HomeScreen() {
     );
   };
 
+  const chartConfig = {
+    backgroundColor: '#ffffff',
+    backgroundGradientFrom: '#ffffff',
+    backgroundGradientTo: '#ffffff',
+    decimalPlaces: 0,
+    color: (opacity = 1) => `rgba(14, 165, 233, ${opacity})`,
+    labelColor: (opacity = 1) => `rgba(100, 116, 139, ${opacity})`,
+    style: {
+      borderRadius: 16,
+    },
+    propsForDots: {
+      r: '6',
+      strokeWidth: '2',
+      stroke: '#0ea5e9',
+    },
+  };
+
   return (
     <SafeAreaView style={styles.container}>
-      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
+      <ScrollView 
+        style={styles.scrollView} 
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+        }
+      >
         <View style={styles.header}>
           <View>
             <Text style={styles.greeting}>
@@ -121,11 +338,17 @@ export default function HomeScreen() {
         <View style={styles.quickActions}>
           <Text style={styles.sectionTitle}>Quick Actions</Text>
           <View style={styles.actionRow}>
-            <TouchableOpacity style={styles.actionButton}>
+            <TouchableOpacity 
+              style={styles.actionButton}
+              onPress={() => handleQuickAction('workout')}
+            >
               <Ionicons name="add-circle" size={32} color="#0ea5e9" />
               <Text style={styles.actionText}>Log Workout</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.actionButton}>
+            <TouchableOpacity 
+              style={styles.actionButton}
+              onPress={() => handleQuickAction('water')}
+            >
               <Ionicons name="water" size={32} color="#06b6d4" />
               <Text style={styles.actionText}>Add Water</Text>
             </TouchableOpacity>
@@ -133,7 +356,10 @@ export default function HomeScreen() {
               <Ionicons name="restaurant" size={32} color="#f59e0b" />
               <Text style={styles.actionText}>Log Meal</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.actionButton}>
+            <TouchableOpacity 
+              style={styles.actionButton}
+              onPress={() => handleQuickAction('steps')}
+            >
               <Ionicons name="footsteps" size={32} color="#22c55e" />
               <Text style={styles.actionText}>Steps</Text>
             </TouchableOpacity>
@@ -142,40 +368,46 @@ export default function HomeScreen() {
 
         <View style={styles.todayStats}>
           <Text style={styles.sectionTitle}>Today's Progress</Text>
-          <View style={styles.statsGrid}>
-            <StatCard
-              title="Steps"
-              current={todayStats.steps}
-              goal={goals.steps}
-              unit=""
-              icon="footsteps"
-              color="#22c55e"
-            />
-            <StatCard
-              title="Calories"
-              current={todayStats.calories}
-              goal={goals.calories}
-              unit=" kcal"
-              icon="flame"
-              color="#ef4444"
-            />
-            <StatCard
-              title="Water"
-              current={todayStats.water}
-              goal={goals.water}
-              unit=" ml"
-              icon="water"
-              color="#06b6d4"
-            />
-            <StatCard
-              title="Workouts"
-              current={todayStats.workouts}
-              goal={goals.workouts}
-              unit=""
-              icon="fitness"
-              color="#8b5cf6"
-            />
-          </View>
+          {loading ? (
+            <View style={styles.loadingContainer}>
+              <Text style={styles.loadingText}>Loading...</Text>
+            </View>
+          ) : (
+            <View style={styles.statsGrid}>
+              <StatCard
+                title="Steps"
+                current={todayStats.steps}
+                goal={goals.steps}
+                unit=""
+                icon="footsteps"
+                color="#22c55e"
+              />
+              <StatCard
+                title="Calories"
+                current={todayStats.calories}
+                goal={goals.calories}
+                unit=" kcal"
+                icon="flame"
+                color="#ef4444"
+              />
+              <StatCard
+                title="Water"
+                current={todayStats.water}
+                goal={goals.water}
+                unit=" ml"
+                icon="water"
+                color="#06b6d4"
+              />
+              <StatCard
+                title="Workouts"
+                current={todayStats.workouts}
+                goal={goals.workouts}
+                unit=""
+                icon="fitness"
+                color="#8b5cf6"
+              />
+            </View>
+          )}
         </View>
 
         <View style={styles.chartSection}>
@@ -194,26 +426,27 @@ export default function HomeScreen() {
 
         <View style={styles.achievements}>
           <Text style={styles.sectionTitle}>Recent Achievements</Text>
-          <View style={styles.achievementsList}>
-            <View style={styles.achievementItem}>
-              <View style={styles.achievementIcon}>
-                <Ionicons name="trophy" size={24} color="#f59e0b" />
-              </View>
-              <View style={styles.achievementContent}>
-                <Text style={styles.achievementTitle}>Step Goal Achieved!</Text>
-                <Text style={styles.achievementDescription}>You reached 10,000 steps yesterday</Text>
-              </View>
+          {achievements.length === 0 ? (
+            <View style={styles.emptyAchievements}>
+              <Ionicons name="star-outline" size={48} color="#94a3b8" />
+              <Text style={styles.emptyText}>No achievements yet</Text>
+              <Text style={styles.emptySubtext}>Keep tracking to unlock achievements!</Text>
             </View>
-            <View style={styles.achievementItem}>
-              <View style={styles.achievementIcon}>
-                <Ionicons name="flame" size={24} color="#ef4444" />
-              </View>
-              <View style={styles.achievementContent}>
-                <Text style={styles.achievementTitle}>Calorie Burner</Text>
-                <Text style={styles.achievementDescription}>3-day workout streak completed</Text>
-              </View>
+          ) : (
+            <View style={styles.achievementsList}>
+              {achievements.map((achievement, index) => (
+                <View key={index} style={styles.achievementItem}>
+                  <View style={[styles.achievementIcon, { backgroundColor: `${achievement.color}20` }]}>
+                    <Ionicons name={achievement.icon} size={24} color={achievement.color} />
+                  </View>
+                  <View style={styles.achievementContent}>
+                    <Text style={styles.achievementTitle}>{achievement.title}</Text>
+                    <Text style={styles.achievementDescription}>{achievement.description}</Text>
+                  </View>
+                </View>
+              ))}
             </View>
-          </View>
+          )}
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -292,6 +525,15 @@ const styles = StyleSheet.create({
     paddingVertical: 20,
     backgroundColor: '#ffffff',
     marginTop: 8,
+  },
+  loadingContainer: {
+    padding: 20,
+    alignItems: 'center',
+  },
+  loadingText: {
+    fontSize: 14,
+    color: '#64748b',
+    ...getFontStyle('regular'),
   },
   statsGrid: {
     flexDirection: 'row',
@@ -385,7 +627,6 @@ const styles = StyleSheet.create({
   achievementIcon: {
     width: 40,
     height: 40,
-    backgroundColor: '#fef3c7',
     borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
@@ -405,5 +646,20 @@ const styles = StyleSheet.create({
     color: '#64748b',
     ...getFontStyle('regular'),
   },
+  emptyAchievements: {
+    padding: 40,
+    alignItems: 'center',
+  },
+  emptyText: {
+    fontSize: 16,
+    color: '#64748b',
+    marginTop: 16,
+    ...getFontStyle('semiBold'),
+  },
+  emptySubtext: {
+    fontSize: 14,
+    color: '#94a3b8',
+    marginTop: 4,
+    ...getFontStyle('regular'),
+  },
 });
-

@@ -10,6 +10,7 @@ import {
   orderBy,
   limit,
   getDocs,
+  onSnapshot,
   serverTimestamp,
 } from 'firebase/firestore';
 import { db } from '../config/firebase';
@@ -244,6 +245,178 @@ export class FirestoreService {
       await deleteDoc(workoutRef);
     } catch (error) {
       throw new Error(`Failed to delete workout: ${error.message}`);
+    }
+  }
+
+  static async getFitnessDataRange(uid, startDate, endDate) {
+    try {
+      const dates = [];
+      const currentDate = new Date(startDate);
+      const end = new Date(endDate);
+      
+      while (currentDate <= end) {
+        const dateString = currentDate.toISOString().split('T')[0];
+        dates.push(dateString);
+        currentDate.setDate(currentDate.getDate() + 1);
+      }
+      
+      const dataPromises = dates.map(date => this.getFitnessData(uid, date));
+      const results = await Promise.all(dataPromises);
+      
+      return dates.map((date, index) => ({
+        date,
+        data: results[index] || {
+          steps: 0,
+          calories: 0,
+          water: 0,
+          workouts: 0,
+        },
+      }));
+    } catch (error) {
+      throw new Error(`Failed to get fitness data range: ${error.message}`);
+    }
+  }
+
+  static async getAllUsers() {
+    try {
+      const usersRef = collection(db, 'users');
+      const querySnapshot = await getDocs(usersRef);
+      const users = [];
+      
+      querySnapshot.forEach((doc) => {
+        const data = doc.data();
+        users.push({
+          id: doc.id,
+          name: data.name || 'Anonymous',
+          email: data.email || '',
+        });
+      });
+      
+      return users;
+    } catch (error) {
+      throw new Error(`Failed to get users: ${error.message}`);
+    }
+  }
+
+  static async getLeaderboard(metric = 'steps', limitCount = 10) {
+    try {
+      const today = this.getTodayDateString();
+      const fitnessRef = collection(db, 'fitness_data');
+      const q = query(
+        fitnessRef,
+        where('date', '==', today),
+        orderBy(metric, 'desc'),
+        limit(limitCount)
+      );
+      
+      const querySnapshot = await getDocs(q);
+      const leaderboard = [];
+      
+      for (const docSnap of querySnapshot.docs) {
+        const data = docSnap.data();
+        const userProfile = await this.getUserProfile(data.uid);
+        leaderboard.push({
+          uid: data.uid,
+          name: userProfile?.name || 'Anonymous',
+          value: data[metric] || 0,
+        });
+      }
+      
+      return leaderboard;
+    } catch (error) {
+      if (error.code === 'failed-precondition') {
+        const today = this.getTodayDateString();
+        const fitnessRef = collection(db, 'fitness_data');
+        const q = query(
+          fitnessRef,
+          where('date', '==', today),
+          limit(limitCount * 2)
+        );
+        
+        const querySnapshot = await getDocs(q);
+        const leaderboard = [];
+        
+        for (const docSnap of querySnapshot.docs) {
+          const data = docSnap.data();
+          const userProfile = await this.getUserProfile(data.uid);
+          leaderboard.push({
+            uid: data.uid,
+            name: userProfile?.name || 'Anonymous',
+            value: data[metric] || 0,
+          });
+        }
+        
+        return leaderboard.sort((a, b) => b.value - a.value).slice(0, limitCount);
+      }
+      throw new Error(`Failed to get leaderboard: ${error.message}`);
+    }
+  }
+
+  static subscribeToFitnessData(uid, date, callback) {
+    try {
+      const fitnessRef = doc(db, 'fitness_data', `${uid}_${date}`);
+      return onSnapshot(fitnessRef, (docSnap) => {
+        if (docSnap.exists()) {
+          callback(docSnap.data());
+        } else {
+          callback(null);
+        }
+      }, (error) => {
+        callback(null);
+      });
+    } catch (error) {
+      callback(null);
+      return () => {};
+    }
+  }
+
+  static subscribeToFitnessDataRange(uid, startDate, endDate, callback) {
+    try {
+      const dates = [];
+      const currentDate = new Date(startDate);
+      const end = new Date(endDate);
+      
+      while (currentDate <= end) {
+        const dateString = currentDate.toISOString().split('T')[0];
+        dates.push(dateString);
+        currentDate.setDate(currentDate.getDate() + 1);
+      }
+      
+      const dataMap = new Map();
+      let loadedCount = 0;
+      
+      const checkAndCallback = () => {
+        if (loadedCount === dates.length) {
+          const results = dates.map(d => ({
+            date: d,
+            data: dataMap.get(d) || { steps: 0, calories: 0, water: 0, workouts: 0 },
+          }));
+          callback(results);
+        }
+      };
+      
+      const unsubscribes = dates.map(date => {
+        const fitnessRef = doc(db, 'fitness_data', `${uid}_${date}`);
+        return onSnapshot(fitnessRef, (docSnap) => {
+          if (docSnap.exists()) {
+            dataMap.set(date, docSnap.data());
+          } else {
+            dataMap.set(date, { steps: 0, calories: 0, water: 0, workouts: 0 });
+          }
+          loadedCount++;
+          checkAndCallback();
+        }, () => {
+          dataMap.set(date, { steps: 0, calories: 0, water: 0, workouts: 0 });
+          loadedCount++;
+          checkAndCallback();
+        });
+      });
+      
+      return () => {
+        unsubscribes.forEach(unsub => unsub());
+      };
+    } catch (error) {
+      return () => {};
     }
   }
 }
